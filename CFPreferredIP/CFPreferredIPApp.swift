@@ -704,7 +704,7 @@ struct ContentView: View {
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) { topBar }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-        .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
+        .fullScreenCover(isPresented: $showSettings) { SettingsView(vm: vm) }
         .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
             Button("好") {}
         } message: { Text(copied ?? "") }
@@ -955,12 +955,16 @@ struct SettingsView: View {
                 Section {
                     TextField("端口", value: $vm.port, format: .number.grouping(.never))
                         .keyboardType(.numberPad)
-                    HStack {
-                        ForEach([443, 2053, 2083, 2087, 2096, 8443], id: \.self) { p in
-                            Button(String(p)) { vm.port = p }
-                                .buttonStyle(.bordered)
-                                .font(.caption2)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach([443, 2053, 2083, 2087, 2096, 8443], id: \.self) { p in
+                                Button(String(p)) { vm.port = p }
+                                    .buttonStyle(.bordered)
+                                    .font(.caption.weight(.medium))
+                                    .frame(minWidth: 54)
+                            }
                         }
+                        .padding(.vertical, 3)
                     }
                 } header: {
                     Text("测试端口")
