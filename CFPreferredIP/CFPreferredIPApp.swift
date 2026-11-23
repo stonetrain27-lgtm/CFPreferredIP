@@ -699,7 +699,6 @@ struct ContentView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .scrollIndicators(.hidden)
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
