@@ -690,24 +690,34 @@ struct ContentView: View {
     private var hasNetwork: Bool { vm.networkStatus != "无网络连接" }
 
     var body: some View {
-        ScrollView {
-                LazyVStack(spacing: 16) {
-                    overviewCard
-                    resultSection
-                    historySection
+        Group {
+            if showSettings {
+                SettingsView(vm: vm, isPresented: $showSettings)
+            } else {
+                mainContent
+                    .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
+                        Button("好") {}
+                    } message: { Text(copied ?? "") }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-            }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+    }
+
+    private var mainContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 16) {
+                overviewCard
+                resultSection
+                historySection
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+        }
         .scrollIndicators(.hidden)
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .safeAreaInset(edge: .top, spacing: 0) { topBar }
         .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-        .fullScreenCover(isPresented: $showSettings) { SettingsView(vm: vm) }
-        .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
-            Button("好") {}
-        } message: { Text(copied ?? "") }
     }
 
     private var topBar: some View {
@@ -940,7 +950,7 @@ struct ContentView: View {
 
 struct SettingsView: View {
     @ObservedObject var vm: ViewModel
-    @Environment(\.dismiss) private var dismiss
+    @Binding var isPresented: Bool
 
     var body: some View {
         NavigationStack {
@@ -1000,7 +1010,7 @@ struct SettingsView: View {
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("完成") { isPresented = false } }
             }
         }
     }
