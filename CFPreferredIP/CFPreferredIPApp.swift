@@ -231,6 +231,20 @@ enum Tester {
         })
     }
 
+    /// XIU2 风格的多次握手取平均值，降低单次 TCP 抖动导致的误选。
+    static func averagedTCPLatency(ip: String, port: UInt16, attempts: Int = 3) async -> Double? {
+        var samples: [Double] = []
+        samples.reserveCapacity(attempts)
+        for _ in 0..<attempts {
+            if Task.isCancelled { return nil }
+            if let value = await tcpLatency(ip: ip, port: port) {
+                samples.append(value)
+            }
+        }
+        guard !samples.isEmpty else { return nil }
+        return samples.reduce(0, +) / Double(samples.count)
+    }
+
     /// 2) HTTPS 延迟：TLS 建立后，发送 /cdn-cgi/trace，测请求到首字节的时间，并解析 colo
     static func httpsPing(ip: String, port: UInt16, timeout: Double = 4) async -> PingResult? {
         let holder = ConnectionHolder()
@@ -315,7 +329,7 @@ enum Tester {
     }
 
     /// 3) 下载测速（MB/s）
-    static func downloadSpeed(ip: String, port: UInt16, seconds: Double = 5) async -> Double? {
+    static func downloadSpeed(ip: String, port: UInt16, seconds: Double = 10) async -> Double? {
         let holder = ConnectionHolder()
         return await withTaskCancellationHandler(operation: {
         await withCheckedContinuation { (cont: CheckedContinuation<Double?, Never>) in
@@ -381,7 +395,7 @@ enum Tester {
             conn.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    let req = "GET /__down?bytes=100000000 HTTP/1.1\r\nHost: \(sni)\r\nUser-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15\r\nAccept: */*\r\nOrigin: https://speed.cloudflare.com\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
+                    let req = "GET /__down?bytes=99999999 HTTP/1.1\r\nHost: \(sni)\r\nUser-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15\r\nAccept: */*\r\nOrigin: https://speed.cloudflare.com\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
                     conn.send(content: req.data(using: .utf8), completion: .contentProcessed { _ in })
                     receive()
                 case .failed, .cancelled:
@@ -407,9 +421,9 @@ final class ViewModel: ObservableObject {
     @Published var useV4 = true
     @Published var useV6 = false
     @Published var port = 443
-    @Published var samplePerRange = 20
+    @Published var samplePerRange = 24
     @Published var useHTTPS = true
-    @Published var httpsTopN = 30
+    @Published var httpsTopN = 40
     @Published var speedTopN = 10
 
     // 状态
@@ -567,7 +581,7 @@ final class ViewModel: ObservableObject {
             var it = ips.makeIterator()
             func addNext() {
                 if let ip = it.next() {
-                    group.addTask { (ip, await Tester.tcpLatency(ip: ip, port: p)) }
+                    group.addTask { (ip, await Tester.averagedTCPLatency(ip: ip, port: p)) }
                 }
             }
             for _ in 0..<100 { addNext() }
@@ -614,8 +628,8 @@ final class ViewModel: ObservableObject {
             results = pool
         }
 
-        // 4. 下载测速（串行）
-        let top = diverseCandidates(from: pool, limit: min(speedTopN, pool.count))
+        // 4. 下载测速（对 HTTPS 延迟最优的候选测速，避免低质量网段轮询挤占名额）
+        let top = Array(pool.prefix(min(speedTopN, pool.count)))
         for (i, item) in top.enumerated() {
             if Task.isCancelled { return }
             status = "下载测速 \(i + 1)/\(top.count)  \(item.ip)"
@@ -676,8 +690,7 @@ struct ContentView: View {
     private var hasNetwork: Bool { vm.networkStatus != "无网络连接" }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
+        ScrollView {
                 LazyVStack(spacing: 16) {
                     overviewCard
                     resultSection
@@ -686,15 +699,16 @@ struct ContentView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .scrollIndicators(.hidden)
-            .background(Color(uiColor: .systemGroupedBackground))
-            .safeAreaInset(edge: .top, spacing: 0) { topBar }
-            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
-            .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
-            .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
-                Button("好") {}
-            } message: { Text(copied ?? "") }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .scrollIndicators(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
+        .safeAreaInset(edge: .top, spacing: 0) { topBar }
+        .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
+        .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
+        .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
+            Button("好") {}
+        } message: { Text(copied ?? "") }
     }
 
     private var topBar: some View {
@@ -711,26 +725,13 @@ struct ContentView: View {
     }
 
     private var bottomBar: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 44) {
             bottomAction(title: "IP 优选", icon: "bolt.horizontal.circle.fill", active: true) {}
-            Menu {
-                Button { vm.copyAll() } label: {
-                    Label("复制全部 IP", systemImage: "doc.on.doc")
-                }
-                .disabled(vm.results.isEmpty)
-                if let url = vm.exportURL {
-                    ShareLink(item: url) {
-                        Label("导出 CSV", systemImage: "arrow.down.doc")
-                    }
-                }
-            } label: {
-                bottomActionLabel(title: "分享", icon: "square.and.arrow.up", active: false)
-            }
-            .disabled(vm.results.isEmpty)
             bottomAction(title: "设置", icon: "slider.horizontal.3", active: false) {
                 showSettings = true
             }
         }
+        .frame(maxWidth: .infinity)
         .padding(.top, 8)
         .padding(.bottom, 4)
         .background(.ultraThinMaterial)
