@@ -1,0 +1,23 @@
+# Xcode
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Archives and exports
+*.xcarchive
+*.ipa
+*.dSYM.zip
+
+# Local secrets
+.env
+*.p12
+*.mobileprovision
