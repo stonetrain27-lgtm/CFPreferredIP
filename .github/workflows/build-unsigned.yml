@@ -1,0 +1,46 @@
+name: Build unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive iOS app
+        run: |
+          xcodebuild archive \
+            -project CFPreferredIP.xcodeproj \
+            -scheme CFPreferredIP \
+            -sdk iphoneos \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/CFPreferredIP.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=NO
+
+      - name: Package unsigned IPA
+        run: |
+          rm -rf Payload CFPreferredIP-unsigned.ipa
+          mkdir Payload
+          cp -R "$RUNNER_TEMP/CFPreferredIP.xcarchive/Products/Applications/CFPreferredIP.app" Payload/
+          ditto -c -k --sequesterRsrc --keepParent Payload CFPreferredIP-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CFPreferredIP-unsigned-ipa
+          path: CFPreferredIP-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
