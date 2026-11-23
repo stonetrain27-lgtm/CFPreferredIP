@@ -16,10 +16,15 @@ targets:
       path: CFPreferredIP/Info.plist
     sources:
       - path: CFPreferredIP
+        excludes:
+          - Assets.xcassets
+    resources:
+      - path: CFPreferredIP/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.trainstone.CFPreferredIP
         PRODUCT_NAME: CFPreferredIP
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_KEY_CFBundleDisplayName: CFPreferredIP
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.utilities
         TARGETED_DEVICE_FAMILY: "1,2"

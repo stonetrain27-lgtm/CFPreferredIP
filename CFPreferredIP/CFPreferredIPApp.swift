@@ -381,7 +381,7 @@ enum Tester {
             conn.stateUpdateHandler = { state in
                 switch state {
                 case .ready:
-                    let req = "GET /__down?bytes=100000000 HTTP/1.1\r\nHost: \(sni)\r\nUser-Agent: Mozilla/5.0\r\nConnection: close\r\n\r\n"
+                    let req = "GET /__down?bytes=100000000 HTTP/1.1\r\nHost: \(sni)\r\nUser-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15\r\nAccept: */*\r\nOrigin: https://speed.cloudflare.com\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n"
                     conn.send(content: req.data(using: .utf8), completion: .contentProcessed { _ in })
                     receive()
                 case .failed, .cancelled:
@@ -592,7 +592,7 @@ final class ViewModel: ObservableObject {
             status = "下载测速 \(i + 1)/\(top.count)  \(item.ip)"
             let speed = await Tester.downloadSpeed(ip: item.ip, port: p)
             if let idx = results.firstIndex(where: { $0.id == item.id }) {
-                results[idx].speed = speed ?? 0
+                results[idx].speed = speed
             }
         }
 
@@ -659,36 +659,43 @@ struct ContentView: View {
             }
             .scrollIndicators(.hidden)
             .background(Color(uiColor: .systemGroupedBackground))
-            .navigationTitle("IP 优选")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Menu {
-                        Button { vm.copyAll() } label: {
-                            Label("复制全部 IP", systemImage: "doc.on.doc")
-                        }
-                        .disabled(vm.results.isEmpty)
-                        if let url = vm.exportURL {
-                            ShareLink(item: url) {
-                                Label("导出 CSV", systemImage: "arrow.down.doc")
-                            }
-                        }
-                    } label: {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .disabled(vm.results.isEmpty)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSettings = true } label: {
-                        Image(systemName: "slider.horizontal.3")
-                    }
-                }
-            }
+            .safeAreaInset(edge: .top, spacing: 0) { topBar }
             .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
             .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
                 Button("好") {}
             } message: { Text(copied ?? "") }
         }
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            Text("IP 优选")
+                .font(.system(size: 28, weight: .bold, design: .rounded))
+            Spacer()
+            Menu {
+                Button { vm.copyAll() } label: {
+                    Label("复制全部 IP", systemImage: "doc.on.doc")
+                }
+                .disabled(vm.results.isEmpty)
+                if let url = vm.exportURL {
+                    ShareLink(item: url) {
+                        Label("导出 CSV", systemImage: "arrow.down.doc")
+                    }
+                }
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .disabled(vm.results.isEmpty)
+            Button { showSettings = true } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+        }
+        .font(.headline)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) { Divider().opacity(0.35) }
     }
 
     private var overviewCard: some View {
@@ -810,13 +817,16 @@ struct ContentView: View {
                 }
                 Spacer(minLength: 4)
                 VStack(alignment: .trailing, spacing: 5) {
-                    if let speed = result.speed {
+                    if let speed = result.speed, speed > 0 {
                         Text(String(format: "%.2f", speed))
                             .font(.headline.monospacedDigit())
                             .foregroundStyle(.green)
                         Text("MB/s").font(.caption2).foregroundStyle(.secondary)
                     } else {
-                        Image(systemName: "doc.on.doc").foregroundStyle(.secondary)
+                        Text("—")
+                            .font(.headline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                        Text("测速失败").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
             }
