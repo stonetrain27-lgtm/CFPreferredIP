@@ -518,6 +518,35 @@ final class ViewModel: ObservableObject {
         }
     }
 
+    /// 按 IP 首段分组后轮询取候选，避免单个 Cloudflare 网段占满结果。
+    /// 每组内部仍保持原来的延迟排序；如果其他网段确实不可达，则自动回填可用组。
+    private func diverseCandidates(from items: [IPResult], limit: Int) -> [IPResult] {
+        guard limit > 0, items.count > limit else { return items }
+        let buckets = Dictionary(grouping: items) { item -> String in
+            if item.ip.contains(":") {
+                return item.ip.split(separator: ":").prefix(2).joined(separator: ":")
+            }
+            return item.ip.split(separator: ".").first.map(String.init) ?? item.ip
+        }
+        let keys = buckets.keys.sorted()
+        var offsets = Dictionary(uniqueKeysWithValues: keys.map { ($0, 0) })
+        var output: [IPResult] = []
+        output.reserveCapacity(limit)
+
+        while output.count < limit {
+            var added = false
+            for key in keys {
+                guard let bucket = buckets[key], let offset = offsets[key], offset < bucket.count else { continue }
+                output.append(bucket[offset])
+                offsets[key] = offset + 1
+                added = true
+                if output.count == limit { break }
+            }
+            if !added { break }
+        }
+        return output
+    }
+
     private func run() async {
         let p = UInt16(port)
 
@@ -558,7 +587,7 @@ final class ViewModel: ObservableObject {
         // 3. HTTPS 延迟验证（可选）
         if useHTTPS {
             status = "HTTPS 验证中…"
-            let cand = Array(pool.prefix(httpsTopN))
+            let cand = diverseCandidates(from: pool, limit: min(httpsTopN, pool.count))
             var verified: [IPResult] = []
             await withTaskGroup(of: (Int, PingResult?).self) { group in
                 for (i, c) in cand.enumerated() {
@@ -586,7 +615,7 @@ final class ViewModel: ObservableObject {
         }
 
         // 4. 下载测速（串行）
-        let top = Array(pool.prefix(speedTopN))
+        let top = diverseCandidates(from: pool, limit: min(speedTopN, pool.count))
         for (i, item) in top.enumerated() {
             if Task.isCancelled { return }
             status = "下载测速 \(i + 1)/\(top.count)  \(item.ip)"
@@ -660,6 +689,7 @@ struct ContentView: View {
             .scrollIndicators(.hidden)
             .background(Color(uiColor: .systemGroupedBackground))
             .safeAreaInset(edge: .top, spacing: 0) { topBar }
+            .safeAreaInset(edge: .bottom, spacing: 0) { bottomBar }
             .sheet(isPresented: $showSettings) { SettingsView(vm: vm) }
             .alert("已复制", isPresented: Binding(get: { copied != nil }, set: { if !$0 { copied = nil } })) {
                 Button("好") {}
@@ -668,10 +698,21 @@ struct ContentView: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 12) {
+        HStack {
             Text("IP 优选")
                 .font(.system(size: 28, weight: .bold, design: .rounded))
             Spacer()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(.ultraThinMaterial)
+        .overlay(alignment: .bottom) { Divider().opacity(0.35) }
+    }
+
+    private var bottomBar: some View {
+        HStack(spacing: 0) {
+            bottomAction(title: "IP 优选", icon: "bolt.horizontal.circle.fill", active: true) {}
             Menu {
                 Button { vm.copyAll() } label: {
                     Label("复制全部 IP", systemImage: "doc.on.doc")
@@ -683,19 +724,34 @@ struct ContentView: View {
                     }
                 }
             } label: {
-                Image(systemName: "square.and.arrow.up")
+                bottomActionLabel(title: "分享", icon: "square.and.arrow.up", active: false)
             }
             .disabled(vm.results.isEmpty)
-            Button { showSettings = true } label: {
-                Image(systemName: "slider.horizontal.3")
+            bottomAction(title: "设置", icon: "slider.horizontal.3", active: false) {
+                showSettings = true
             }
         }
-        .font(.headline)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
         .background(.ultraThinMaterial)
-        .overlay(alignment: .bottom) { Divider().opacity(0.35) }
+        .overlay(alignment: .top) { Divider().opacity(0.35) }
+    }
+
+    private func bottomAction(title: String, icon: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            bottomActionLabel(title: title, icon: icon, active: active)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func bottomActionLabel(title: String, icon: String, active: Bool) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).font(.system(size: 20, weight: .semibold))
+            Text(title).font(.caption.weight(.medium))
+        }
+        .foregroundStyle(active ? Color.blue : Color.secondary)
+        .frame(maxWidth: .infinity)
     }
 
     private var overviewCard: some View {
