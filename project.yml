@@ -16,10 +16,6 @@ targets:
       path: CFPreferredIP/Info.plist
     sources:
       - path: CFPreferredIP
-        excludes:
-          - Assets.xcassets
-    resources:
-      - path: CFPreferredIP/Assets.xcassets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.trainstone.CFPreferredIP
