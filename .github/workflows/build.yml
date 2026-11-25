@@ -1,0 +1,46 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build (unsigned)
+        run: |
+          set -o pipefail
+          xcodebuild build -project CFST.xcodeproj -scheme CFST -sdk iphoneos -configuration Release CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" -derivedDataPath build/DD 2>&1 | tee build.log
+
+      - name: Package IPA
+        if: success()
+        run: |
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R build/DD/Build/Products/Release-iphoneos/CFST.app Payload/
+          zip -qry CFST.ipa Payload
+          ls -lh CFST.ipa
+
+      - name: Publish release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete ipa-latest --cleanup-tag --yes 2>/dev/null || true
+          gh release create ipa-latest CFST.ipa --title "CFST IPA (latest build)" --notes "Unsigned IPA from Actions run ${{ github.run_number }}. Download CFST.ipa and sign it with your own signing tool, then install."
+
+      - name: Report failure as issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (tail -n 150 build.log 2>/dev/null || echo "no build.log") > tail.txt
+          gh issue create --title "Build failed: run ${{ github.run_number }}" --body-file tail.txt || true
